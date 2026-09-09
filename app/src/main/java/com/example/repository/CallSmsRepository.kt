@@ -1,5 +1,6 @@
 package com.example.repository
 
+import com.example.data.CallLogEntity
 import com.example.data.CallSmsDao
 import com.example.data.ContactEntity
 import com.example.data.LogEntity
@@ -20,6 +21,14 @@ class CallSmsRepository(private val dao: CallSmsDao) {
     val spammerContacts: Flow<List<ContactEntity>> = dao.getSpammerContacts()
     val allSpamKeywords: Flow<List<SpamKeywordEntity>> = dao.getAllSpamKeywords()
     val allLogs: Flow<List<LogEntity>> = dao.getAllLogs()
+    val allCallLogs: Flow<List<CallLogEntity>> = dao.getAllCallLogs()
+    val spamCallLogs: Flow<List<CallLogEntity>> = dao.getSpamCallLogs()
+
+    suspend fun insertCallLog(callLog: CallLogEntity): Long = dao.insertCallLog(callLog)
+    suspend fun deleteCallLogById(id: Int) = dao.deleteCallLogById(id)
+    suspend fun clearAllCallLogs() = dao.clearAllCallLogs()
+    fun getCallLogsForNumber(phoneNumber: String): Flow<List<CallLogEntity>> =
+        dao.getCallLogsForNumber(normalizeNumber(phoneNumber))
 
     suspend fun insertContact(contact: ContactEntity) {
         val normalized = normalizeNumber(contact.phoneNumber)

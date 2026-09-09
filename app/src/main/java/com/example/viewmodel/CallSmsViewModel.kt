@@ -4,11 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
+import com.example.data.CallLogEntity
 import com.example.data.ContactEntity
 import com.example.data.LogEntity
 import com.example.data.SpamKeywordEntity
 import com.example.repository.CallSmsRepository
 import com.example.repository.SmsAnalysisResult
+import com.example.service.CallMonitoringService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +42,19 @@ data class MusicPlayerState(
 data class EqualizerState(
     val isEnabled: Boolean = true,
     val bands: List<Float> = listOf(0.5f, 0.7f, 0.4f, 0.8f, 0.6f), // 5 slider bands (0.0 to 1.0)
-    val preset: String = "Lofi Beats" // "Lofi Beats", "Rock Booster", "Acoustic", "Jazz Cafe"
+    val preset: String = "Lofi Beats", // "Flat", "Bass Boost", "Vocal Enhancer", "Rock Booster", "Lofi Beats", "Electronic", "Acoustic", "Clear Call Voice"
+    val bassBoost: Float = 0.65f, // 0.0 to 1.0
+    val virtualizer3D: Float = 0.45f, // 0.0 to 1.0
+    val clearVoice: Boolean = true
+)
+
+data class SecurityVulnerability(
+    val id: String,
+    val title: String,
+    val description: String,
+    val severity: String, // "CRITICAL", "HIGH", "MEDIUM", "SAFE"
+    val isResolved: Boolean = false,
+    val actionLabel: String = "Fix"
 )
 
 data class CallRecording(
@@ -59,6 +73,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     val spammerContacts: StateFlow<List<ContactEntity>>
     val allSpamKeywords: StateFlow<List<SpamKeywordEntity>>
     val allLogs: StateFlow<List<LogEntity>>
+    val allCallLogs: StateFlow<List<CallLogEntity>>
 
     // --- State for Interactive Testing & Simulation ---
     private val _simulatedCall = MutableStateFlow<SimulatedCall?>(null)
@@ -75,15 +90,96 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     val filterTestResult: StateFlow<SmsAnalysisResult?> = _filterTestResult.asStateFlow()
 
     // --- Music & Call Fusion Features ---
-    val availableTracks = listOf(
-        Mp3Track("1", "Neon Lights", "LoFi Beats", "Midnight Drive", 185000, "#00F2FE", "🎧"),
-        Mp3Track("2", "Rock Star", "Alex Harrison", "Rebel Heart", 210000, "#FF007F", "🎸"),
-        Mp3Track("3", "Cyberpunk Synth", "Vector Force", "Neo Grid 2026", 240000, "#39FF14", "⚡"),
-        Mp3Track("4", "Aura Breeze", "Luna Chill", "Whispers", 152000, "#BD00FF", "🌸"),
-        Mp3Track("5", "Raindrops", "Nature Sounds", "Atmosphere", 300000, "#00E5FF", "🌧️")
+    private val _availableTracks = MutableStateFlow(
+        listOf(
+            Mp3Track("1", "Neon Lights", "LoFi Beats", "Midnight Drive", 185000, "#00F2FE", "🎧"),
+            Mp3Track("2", "Rock Star", "Alex Harrison", "Rebel Heart", 210000, "#FF007F", "🎸"),
+            Mp3Track("3", "Cyberpunk Synth", "Vector Force", "Neo Grid 2026", 240000, "#39FF14", "⚡"),
+            Mp3Track("4", "Aura Breeze", "Luna Chill", "Whispers", 152000, "#BD00FF", "🌸"),
+            Mp3Track("5", "Raindrops", "Nature Sounds", "Atmosphere", 300000, "#00E5FF", "🌧️")
+        )
     )
+    val availableTracksFlow: StateFlow<List<Mp3Track>> = _availableTracks.asStateFlow()
+    val availableTracks: List<Mp3Track> get() = _availableTracks.value
 
-    private val _musicPlayerState = MutableStateFlow(MusicPlayerState(currentTrack = availableTracks[0]))
+    // --- Settings, Customization & Scanners ---
+    private val _appTheme = MutableStateFlow("Cyber Dark") // "Cyber Dark", "OLED Pure Black", "Deep Midnight Navy", "Neon Aurora", "Clean Light Silver"
+    val appTheme: StateFlow<String> = _appTheme.asStateFlow()
+
+    private val _visualizerTheme = MutableStateFlow("Cyber Neon Cyan") // "Cyber Neon Cyan", "Cyberpunk Amber", "Vaporwave Purple", "Matrix Emerald", "Sunset Crimson", "Electric Blue"
+    val visualizerTheme: StateFlow<String> = _visualizerTheme.asStateFlow()
+
+    private val _visualizerStyle = MutableStateFlow("Dynamic Bars") // "Dynamic Bars", "Waveform Pulse", "Circular Aura", "Beat Strobe"
+    val visualizerStyle: StateFlow<String> = _visualizerStyle.asStateFlow()
+
+    // --- Customizable Hardware Player Canvas Background ---
+    private val _customBackgroundUri = MutableStateFlow<String?>(null)
+    val customBackgroundUri: StateFlow<String?> = _customBackgroundUri.asStateFlow()
+
+    private val _playerBackgroundTheme = MutableStateFlow("Deep AMOLED Black") // "Deep AMOLED Black", "Cyber Neon Glow", "Frosted Glass", "Dynamic Audio Blur"
+    val playerBackgroundTheme: StateFlow<String> = _playerBackgroundTheme.asStateFlow()
+
+    fun setCustomBackgroundUri(uri: String?) {
+        _customBackgroundUri.value = uri
+    }
+
+    fun setPlayerBackgroundTheme(theme: String) {
+        _playerBackgroundTheme.value = theme
+    }
+
+    fun togglePlayback() {
+        val current = _musicPlayerState.value
+        _musicPlayerState.value = current.copy(isPlaying = !current.isPlaying)
+    }
+
+    // --- Audio Local File Scanner State ---
+    private val _isAudioScanning = MutableStateFlow(false)
+    val isAudioScanning: StateFlow<Boolean> = _isAudioScanning.asStateFlow()
+
+    private val _audioScanProgress = MutableStateFlow(0f)
+    val audioScanProgress: StateFlow<Float> = _audioScanProgress.asStateFlow()
+
+    private val _scannedTracks = MutableStateFlow<List<Mp3Track>>(emptyList())
+    val scannedTracks: StateFlow<List<Mp3Track>> = _scannedTracks.asStateFlow()
+
+    // --- Security & Spam Shield Scanner State ---
+    private val _isSecurityScanning = MutableStateFlow(false)
+    val isSecurityScanning: StateFlow<Boolean> = _isSecurityScanning.asStateFlow()
+
+    private val _securityScore = MutableStateFlow(84)
+    val securityScore: StateFlow<Int> = _securityScore.asStateFlow()
+
+    private val _securityIssues = MutableStateFlow(
+        listOf(
+            SecurityVulnerability(
+                id = "v1",
+                title = "Crypto & Phishing Keywords Missing",
+                description = "Common scam keywords 'airdrop', 'seed phrase', 'urgent wire' are not yet in your blocklist.",
+                severity = "HIGH",
+                isResolved = false,
+                actionLabel = "Add Keywords"
+            ),
+            SecurityVulnerability(
+                id = "v2",
+                title = "Unassigned Ringtone for Unknown Callers",
+                description = "Unknown callers will use default system chime instead of high-alert alarm visualizer.",
+                severity = "MEDIUM",
+                isResolved = false,
+                actionLabel = "Assign Strobe"
+            ),
+            SecurityVulnerability(
+                id = "v3",
+                title = "Offline Telephony Service Active",
+                description = "Background Call Monitoring Service is registered and shielding incoming calls.",
+                severity = "SAFE",
+                isResolved = true,
+                actionLabel = "Verified"
+            )
+        )
+    )
+    val securityIssues: StateFlow<List<SecurityVulnerability>> = _securityIssues.asStateFlow()
+
+    private val _musicPlayerState = MutableStateFlow(MusicPlayerState(currentTrack = _availableTracks.value[0]))
     val musicPlayerState: StateFlow<MusicPlayerState> = _musicPlayerState.asStateFlow()
 
     private val _equalizerState = MutableStateFlow(EqualizerState())
@@ -136,6 +232,9 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         allLogs = repository.allLogs
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        allCallLogs = repository.allCallLogs
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         // Seed default database entities
@@ -227,7 +326,11 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // --- Equalizer Controls ---
+    // --- Equalizer Controls & Sound Enhancement ---
+    fun toggleEqualizer(enabled: Boolean) {
+        _equalizerState.value = _equalizerState.value.copy(isEnabled = enabled)
+    }
+
     fun updateEqualizerBand(index: Int, value: Float) {
         val bands = _equalizerState.value.bands.toMutableList()
         if (index in bands.indices) {
@@ -236,15 +339,198 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun updateEqualizerBassBoost(boost: Float) {
+        _equalizerState.value = _equalizerState.value.copy(bassBoost = boost.coerceIn(0.0f, 1.0f))
+    }
+
+    fun updateEqualizerVirtualizer(virtualizer: Float) {
+        _equalizerState.value = _equalizerState.value.copy(virtualizer3D = virtualizer.coerceIn(0.0f, 1.0f))
+    }
+
+    fun toggleClearVoice(enabled: Boolean) {
+        _equalizerState.value = _equalizerState.value.copy(clearVoice = enabled)
+    }
+
     fun setEqualizerPreset(presetName: String) {
         val newBands = when (presetName) {
-            "Lofi Beats" -> listOf(0.4f, 0.6f, 0.5f, 0.4f, 0.5f)
-            "Rock Booster" -> listOf(0.8f, 0.5f, 0.4f, 0.6f, 0.8f)
+            "Bass Boost" -> listOf(0.9f, 0.75f, 0.45f, 0.4f, 0.5f)
+            "Vocal Enhancer" -> listOf(0.3f, 0.6f, 0.85f, 0.75f, 0.4f)
+            "Rock Booster" -> listOf(0.85f, 0.5f, 0.4f, 0.65f, 0.85f)
+            "Lofi Beats" -> listOf(0.6f, 0.7f, 0.5f, 0.45f, 0.55f)
+            "Electronic" -> listOf(0.8f, 0.6f, 0.4f, 0.7f, 0.85f)
             "Acoustic" -> listOf(0.5f, 0.4f, 0.6f, 0.7f, 0.5f)
-            "Jazz Cafe" -> listOf(0.6f, 0.7f, 0.4f, 0.5f, 0.6f)
+            "Clear Call Voice" -> listOf(0.2f, 0.5f, 0.9f, 0.8f, 0.3f)
+            "Flat" -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
             else -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
         }
-        _equalizerState.value = EqualizerState(bands = newBands, preset = presetName)
+        val newBass = if (presetName == "Bass Boost") 0.9f else if (presetName == "Clear Call Voice") 0.2f else _equalizerState.value.bassBoost
+        _equalizerState.value = _equalizerState.value.copy(bands = newBands, preset = presetName, bassBoost = newBass)
+    }
+
+    // --- App Theme & Visualizer Themes ---
+    fun setAppTheme(theme: String) {
+        _appTheme.value = theme
+    }
+
+    fun setVisualizerTheme(theme: String) {
+        _visualizerTheme.value = theme
+    }
+
+    fun setVisualizerStyle(style: String) {
+        _visualizerStyle.value = style
+    }
+
+    // --- Local MP3 File Management ---
+    fun addLocalMp3Track(
+        title: String,
+        artist: String,
+        album: String = "Local Audio",
+        durationMs: Long = 195000L,
+        accentColorHex: String = "#00F2FE",
+        coverIcon: String = "🎵"
+    ) {
+        val newId = "local_${System.currentTimeMillis()}"
+        val newTrack = Mp3Track(
+            id = newId,
+            title = title.ifBlank { "Custom Ringtone" },
+            artist = artist.ifBlank { "Local Audio" },
+            album = album,
+            durationMs = durationMs,
+            accentColorHex = accentColorHex,
+            coverIcon = coverIcon
+        )
+        val currentList = _availableTracks.value.toMutableList()
+        currentList.add(0, newTrack)
+        _availableTracks.value = currentList
+    }
+
+    fun removeLocalMp3Track(trackId: String) {
+        val currentList = _availableTracks.value.filter { it.id != trackId }
+        _availableTracks.value = currentList
+        if (_musicPlayerState.value.currentTrack.id == trackId && currentList.isNotEmpty()) {
+            _musicPlayerState.value = _musicPlayerState.value.copy(currentTrack = currentList[0])
+        }
+    }
+
+    // --- Scanner 1: Local Device Audio Scanner ---
+    fun runAudioScanner() {
+        if (_isAudioScanning.value) return
+        _isAudioScanning.value = true
+        _audioScanProgress.value = 0.1f
+        _scannedTracks.value = emptyList()
+
+        viewModelScope.launch {
+            delay(400)
+            _audioScanProgress.value = 0.35f
+            delay(500)
+            _audioScanProgress.value = 0.7f
+            delay(400)
+            _audioScanProgress.value = 1.0f
+
+            // Realistic discovered local audio tracks from device ringtones & music directory
+            val discovered = listOf(
+                Mp3Track("scanned_1", "Cyberpunk Echoes", "Future Wave", "Download/Music", 215000, "#00F2FE", "⚡"),
+                Mp3Track("scanned_2", "Ambient Rainfall LoFi", "Chill Station", "Ringtones", 175000, "#39FF14", "🌧️"),
+                Mp3Track("scanned_3", "Heavy Bass Strobe", "DJ Volt", "Music/Bass", 198000, "#FF007F", "🔊"),
+                Mp3Track("scanned_4", "Gentle Morning Marimba", "Acoustic Joy", "Notifications", 142000, "#FFB300", "🔔")
+            )
+            _scannedTracks.value = discovered
+            _isAudioScanning.value = false
+        }
+    }
+
+    fun addScannedTracksToLibrary() {
+        val newTracks = _scannedTracks.value
+        if (newTracks.isNotEmpty()) {
+            val existingIds = _availableTracks.value.map { it.id }.toSet()
+            val toAdd = newTracks.filter { it.id !in existingIds }
+            _availableTracks.value = toAdd + _availableTracks.value
+            _scannedTracks.value = emptyList()
+        }
+    }
+
+    // --- Scanner 2: Security & Spam Shield Scanner ---
+    fun runSecurityScanner() {
+        if (_isSecurityScanning.value) return
+        _isSecurityScanning.value = true
+
+        viewModelScope.launch {
+            delay(600)
+            // Re-evaluate database state
+            val contactsList = allContacts.value
+            val spamCount = contactsList.count { it.category == "SPAM" }
+            val keywordCount = allSpamKeywords.value.size
+            val callLogsCount = allLogs.value.size
+
+            val issues = mutableListOf<SecurityVulnerability>()
+
+            if (keywordCount < 6) {
+                issues.add(
+                    SecurityVulnerability(
+                        id = "v1",
+                        title = "Phishing & Wire Keywords Blocklist",
+                        description = "Add recommended keywords: 'wire transfer', 'seed phrase', 'cryptocurrency airdrop'.",
+                        severity = "HIGH",
+                        isResolved = false,
+                        actionLabel = "Add Keywords"
+                    )
+                )
+            } else {
+                issues.add(
+                    SecurityVulnerability(
+                        id = "v1",
+                        title = "Keyword Shield Active",
+                        description = "$keywordCount high-threat spam filter keywords active.",
+                        severity = "SAFE",
+                        isResolved = true,
+                        actionLabel = "Protected"
+                    )
+                )
+            }
+
+            if (spamCount > 0) {
+                issues.add(
+                    SecurityVulnerability(
+                        id = "v2",
+                        title = "Known Spammers Blocked",
+                        description = "$spamCount dangerous phone numbers auto-silenced.",
+                        severity = "SAFE",
+                        isResolved = true,
+                        actionLabel = "Secured"
+                    )
+                )
+            }
+
+            issues.add(
+                SecurityVulnerability(
+                    id = "v3",
+                    title = "Offline Telephony Shield Status",
+                    description = "Local Caller ID lookup is 100% offline. Zero metadata leaves device.",
+                    severity = "SAFE",
+                    isResolved = true,
+                    actionLabel = "Zero Cloud"
+                )
+            )
+
+            _securityIssues.value = issues
+            val score = if (issues.any { !it.isResolved }) 88 else 100
+            _securityScore.value = score
+            _isSecurityScanning.value = false
+        }
+    }
+
+    fun optimizeAllSecurity() {
+        viewModelScope.launch {
+            // Add recommended security keywords
+            val recommended = listOf("airdrop", "seed phrase", "wire transfer", "giftcard", "urgent refund")
+            recommended.forEach { kw ->
+                repository.insertSpamKeyword(SpamKeywordEntity(keyword = kw))
+            }
+
+            val resolved = _securityIssues.value.map { it.copy(isResolved = true) }
+            _securityIssues.value = resolved
+            _securityScore.value = 100
+        }
     }
 
     // --- Active In-Call Utilities ---
@@ -312,6 +598,18 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     fun clearLogs() {
         viewModelScope.launch {
             repository.clearAllLogs()
+        }
+    }
+
+    fun deleteCallLog(id: Int) {
+        viewModelScope.launch {
+            repository.deleteCallLogById(id)
+        }
+    }
+
+    fun clearCallLogs() {
+        viewModelScope.launch {
+            repository.clearAllCallLogs()
         }
     }
 
@@ -545,6 +843,16 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
                 }
                 delay(120) // Fast 60-FPS like updates for visual fluidity
             }
+        }
+    }
+
+    fun testServiceCallerId(context: android.content.Context, phoneNumber: String = "+18005559999") {
+        CallMonitoringService.triggerTestCallerId(context, phoneNumber)
+    }
+
+    fun insertCallLog(callLog: CallLogEntity) {
+        viewModelScope.launch {
+            repository.insertCallLog(callLog)
         }
     }
 

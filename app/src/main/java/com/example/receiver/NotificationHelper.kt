@@ -1,5 +1,6 @@
 package com.example.receiver
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -12,9 +13,11 @@ import com.example.MainActivity
 object NotificationHelper {
     private const val CHANNEL_CALLER_ID = "channel_caller_id"
     private const val CHANNEL_SPAM_BLOCKS = "channel_spam_blocks"
+    private const val CHANNEL_SERVICE = "channel_call_monitoring"
     
     private const val NOTIFICATION_ID_CALL = 1001
     private const val NOTIFICATION_ID_SMS = 1002
+    const val NOTIFICATION_ID_SERVICE = 1003
 
     fun initNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -38,10 +41,40 @@ object NotificationHelper {
             ).apply {
                 description = "Notifies when a spam text message is intercepted or blocked"
             }
+
+            // Channel 3: Service Monitoring
+            val serviceChannel = NotificationChannel(
+                CHANNEL_SERVICE,
+                "Call Monitoring Service",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Keeps the local caller ID and screening service active"
+            }
             
             manager.createNotificationChannel(callChannel)
             manager.createNotificationChannel(spamChannel)
+            manager.createNotificationChannel(serviceChannel)
         }
+    }
+
+    fun buildServiceNotification(context: Context): Notification {
+        initNotificationChannels(context)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(context, CHANNEL_SERVICE)
+            .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+            .setContentTitle("🛡️ Elyzareth Call Protection Active")
+            .setContentText("Local Caller ID and Call Screening is actively running.")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
     }
 
     fun showCallNotification(context: Context, number: String, title: String, isSpam: Boolean, reason: String?) {

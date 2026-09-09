@@ -46,4 +46,23 @@ interface CallSmsDao {
 
     @Query("DELETE FROM logs WHERE id = :id")
     suspend fun deleteLogById(id: Int)
+
+    // --- Dedicated Call Logs Queries ---
+    @Query("SELECT * FROM call_logs ORDER BY timestamp DESC")
+    fun getAllCallLogs(): Flow<List<CallLogEntity>>
+
+    @Query("SELECT * FROM call_logs WHERE isSpam = 1 ORDER BY timestamp DESC")
+    fun getSpamCallLogs(): Flow<List<CallLogEntity>>
+
+    @Query("SELECT * FROM call_logs WHERE phoneNumber = :phoneNumber ORDER BY timestamp DESC")
+    fun getCallLogsForNumber(phoneNumber: String): Flow<List<CallLogEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCallLog(callLog: CallLogEntity): Long
+
+    @Query("DELETE FROM call_logs WHERE id = :id")
+    suspend fun deleteCallLogById(id: Int)
+
+    @Query("DELETE FROM call_logs")
+    suspend fun clearAllCallLogs()
 }

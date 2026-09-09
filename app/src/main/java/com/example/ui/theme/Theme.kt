@@ -28,23 +28,60 @@ private val LightColorScheme =
     surface = LightSurface
   )
 
+private val OledColorScheme =
+  darkColorScheme(
+    primary = OledPrimary,
+    secondary = OledSecondary,
+    tertiary = SafeGreen80,
+    background = OledBackground,
+    surface = OledSurface,
+    surfaceVariant = OledCard
+  )
+
+private val NavyColorScheme =
+  darkColorScheme(
+    primary = NavyPrimary,
+    secondary = NavySecondary,
+    tertiary = SecurityTeal80,
+    background = NavyBackground,
+    surface = NavySurface,
+    surfaceVariant = NavyCard
+  )
+
+private val AuroraColorScheme =
+  darkColorScheme(
+    primary = AuroraPrimary,
+    secondary = AuroraSecondary,
+    tertiary = SafeGreen80,
+    background = AuroraBackground,
+    surface = AuroraSurface,
+    surfaceVariant = AuroraCard
+  )
+
+private val SilverColorScheme =
+  lightColorScheme(
+    primary = SilverPrimary,
+    secondary = SilverSecondary,
+    tertiary = SafeGreen40,
+    background = SilverBackground,
+    surface = SilverSurface,
+    surfaceVariant = SilverCard
+  )
+
 @Composable
 fun MyApplicationTheme(
+  appTheme: String = "Cyber Dark",
   darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
+  val colorScheme = when (appTheme) {
+    "OLED Pure Black" -> OledColorScheme
+    "Deep Midnight Navy" -> NavyColorScheme
+    "Neon Aurora" -> AuroraColorScheme
+    "Clean Light Silver" -> SilverColorScheme
+    "Cyber Dark" -> DarkColorScheme
+    else -> if (darkTheme) DarkColorScheme else LightColorScheme
+  }
 
   MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

@@ -47,6 +47,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -63,29 +66,26 @@ import java.util.*
 @Composable
 fun MainScreen(viewModel: CallSmsViewModel) {
     val context = LocalContext.current
-    var activeTab by remember { mutableStateOf(0) }
-
-    // Collect Room database states
-    val contacts by viewModel.allContacts.collectAsState()
-    val keywords by viewModel.allSpamKeywords.collectAsState()
-    val logs by viewModel.allLogs.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(2) } // 0=Phone, 1=Messages, 2=Music, 3=Settings, 4=Premium
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    var showQuickDialerDialog by remember { mutableStateOf(false) }
 
     // Collect Simulation & Lookup States
     val activeSimulatedCall by viewModel.simulatedCall.collectAsState()
     val activeSimulatedSms by viewModel.simulatedSms.collectAsState()
 
     // System Permissions Launcher
-    val requiredPermissions = mutableListOf(
-        Manifest.permission.RECEIVE_SMS,
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CALL_LOG
-    ).apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }.toTypedArray()
-
-    var permissionsGranted by remember { mutableStateOf(false) }
+    val requiredPermissions = remember {
+        mutableListOf(
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG
+        ).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -94,122 +94,109 @@ fun MainScreen(viewModel: CallSmsViewModel) {
         val phoneOk = results[Manifest.permission.READ_PHONE_STATE] ?: false
         val logOk = results[Manifest.permission.READ_CALL_LOG] ?: false
         
-        permissionsGranted = smsOk && phoneOk && logOk
-        if (permissionsGranted) {
-            Toast.makeText(context, "All key permissions approved! Background filters active.", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "Some permissions were declined. You can still use the custom Simulators!", Toast.LENGTH_LONG).show()
+        if (smsOk && phoneOk && logOk) {
+            Toast.makeText(context, "Telephony shield active.", Toast.LENGTH_SHORT).show()
         }
     }
 
+    LaunchedEffect(Unit) {
+        permissionLauncher.launch(requiredPermissions)
+    }
+
+    val navTabs = listOf(
+        Triple("Phone", Icons.Default.Phone, "tab_phone"),
+        Triple("Messages", Icons.Default.Chat, "tab_messages"),
+        Triple("Music", Icons.Default.MusicNote, "tab_music"),
+        Triple("Settings", Icons.Default.Tune, "tab_settings"),
+        Triple("Premium", Icons.Default.WorkspacePremium, "tab_premium")
+    )
+
     Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = "Security Shield",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Elyzareth Caller",
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
-                )
-            )
-        }
-    ) { innerPadding ->
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFF0D0B14).copy(alpha = 0.96f),
+                tonalElevation = 8.dp,
+                modifier = Modifier
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    )
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .testTag("app_bottom_nav_bar")
+            ) {
+                navTabs.forEachIndexed { index, (label, icon, testTag) ->
+                    val isSelected = selectedTab == index
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { selectedTab = index },
+                        icon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00F2FE),
+                            selectedTextColor = Color(0xFF00F2FE),
+                            indicatorColor = Color(0xFF00F2FE).copy(alpha = 0.18f),
+                            unselectedIconColor = Color.White.copy(alpha = 0.55f),
+                            unselectedTextColor = Color.White.copy(alpha = 0.55f)
+                        ),
+                        modifier = Modifier.testTag(testTag)
+                    )
+                }
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // Header Stats Bar
-                StatsSummaryHeader(
-                    contactsCount = contacts.size,
-                    spammersCount = contacts.count { it.category == "SPAM" },
-                    keywordsCount = keywords.size,
-                    logsCount = logs.size
+            // 5 Primary Screens
+            when (selectedTab) {
+                0 -> PhoneTabScreen(
+                    viewModel = viewModel,
+                    onOpenDialpad = { showQuickDialerDialog = true }
                 )
-
-                // Permissions banner
-                AnimatedVisibility(
-                    visible = !permissionsGranted,
-                    enter = fadeIn() + slideInVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    PermissionBanner(onRequest = { permissionLauncher.launch(requiredPermissions) })
-                }
-
-                // Tab Row Switcher
-                TabRow(
-                    selectedTabIndex = activeTab,
-                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                    contentColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Tab(
-                        selected = activeTab == 0,
-                        onClick = { activeTab = 0 },
-                        text = { Text("Tester Console", fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.Tune, contentDescription = "Tester Console") },
-                        modifier = Modifier.testTag("tab_console")
-                    )
-                    Tab(
-                        selected = activeTab == 1,
-                        onClick = { activeTab = 1 },
-                        text = { Text("Contacts ID", fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.ContactPhone, contentDescription = "Contacts ID") },
-                        modifier = Modifier.testTag("tab_contacts")
-                    )
-                    Tab(
-                        selected = activeTab == 2,
-                        onClick = { activeTab = 2 },
-                        text = { Text("SMS Keywords", fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.Key, contentDescription = "SMS Keywords") },
-                        modifier = Modifier.testTag("tab_keywords")
-                    )
-                    Tab(
-                        selected = activeTab == 3,
-                        onClick = { activeTab = 3 },
-                        text = { Text("Spam Logs", fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.History, contentDescription = "Spam Logs") },
-                        modifier = Modifier.testTag("tab_logs")
-                    )
-                }
-
-                // Selected Tab view
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    when (activeTab) {
-                        0 -> TesterConsoleTab(viewModel)
-                        1 -> ContactsTab(contacts, viewModel)
-                        2 -> KeywordsTab(keywords, viewModel)
-                        3 -> LogsTab(logs, viewModel)
-                    }
-                }
+                1 -> MessagesTabScreen(viewModel = viewModel)
+                2 -> ElyzarethPlayerScreen(
+                    viewModel = viewModel,
+                    onOpenSettings = { selectedTab = 3 },
+                    onOpenQuickDialer = { showQuickDialerDialog = true }
+                )
+                3 -> SettingsTabScreen(viewModel = viewModel)
+                4 -> PremiumTabScreen(viewModel = viewModel)
             }
 
-            // --- Realistic Simulated HUD Popups (Overlays) ---
+            // Settings Modal Bottom Sheet (if explicitly opened)
+            if (showSettingsSheet) {
+                SettingsSheet(
+                    viewModel = viewModel,
+                    onDismiss = { showSettingsSheet = false }
+                )
+            }
+
+            // Compact Smart Keypad Modal
+            if (showQuickDialerDialog) {
+                QuickCompactDialerDialog(
+                    viewModel = viewModel,
+                    onDismiss = { showQuickDialerDialog = false }
+                )
+            }
+
+            // Realistic Call & SMS Incoming Overlays
             activeSimulatedCall?.let { simCall ->
                 SimulatedCallHUD(
                     simCall = simCall,
@@ -226,6 +213,162 @@ fun MainScreen(viewModel: CallSmsViewModel) {
         }
     }
 }
+
+@Composable
+fun QuickCompactDialerDialog(
+    viewModel: CallSmsViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var dialedNumber by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SMART HARDWARE KEYPAD",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Display number
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (dialedNumber.isEmpty()) "Dial number..." else dialedNumber,
+                        fontSize = 16.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = if (dialedNumber.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (dialedNumber.isNotEmpty()) {
+                        IconButton(
+                            onClick = { dialedNumber = dialedNumber.dropLast(1) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Backspace, contentDescription = "Backspace", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // 3x4 Grid (compact)
+                val keypad = listOf(
+                    listOf("1", "2", "3"),
+                    listOf("4", "5", "6"),
+                    listOf("7", "8", "9"),
+                    listOf("*", "0", "#")
+                )
+
+                keypad.forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { digit ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable {
+                                        if (dialedNumber.length < 16) dialedNumber += digit
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = digit,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (dialedNumber.isNotBlank()) {
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dialedNumber"))
+                                context.startActivity(intent)
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "Enter phone number", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676), contentColor = Color.Black),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Call", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            val target = if (dialedNumber.isNotBlank()) dialedNumber else "+1 (555) 019-2834"
+                            viewModel.simulateIncomingCall(target)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Icon(Icons.Default.RingVolume, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Simulate", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 // --- Stats Summary Header Component ---
 @Composable
@@ -2142,6 +2285,7 @@ fun KeywordsTab(keywords: List<SpamKeywordEntity>, viewModel: CallSmsViewModel) 
 // --- Tab 4: Spam Logs ---
 @Composable
 fun LogsTab(logs: List<LogEntity>, viewModel: CallSmsViewModel) {
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("MMM dd, HH:mm:ss", Locale.getDefault()) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -2150,7 +2294,7 @@ fun LogsTab(logs: List<LogEntity>, viewModel: CallSmsViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
                     text = "🛡️ Local Screening Audit Trail",
                     fontSize = 16.sp,
@@ -2163,14 +2307,28 @@ fun LogsTab(logs: List<LogEntity>, viewModel: CallSmsViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (logs.isNotEmpty()) {
-                TextButton(
-                    onClick = { viewModel.clearLogs() },
-                    modifier = Modifier.testTag("clear_logs_btn")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.testServiceCallerId(context, "+18005559999")
+                        Toast.makeText(context, "Testing Local Caller ID Service...", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.testTag("test_service_caller_id_btn")
                 ) {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Clear All")
+                    Text("Test Service", fontSize = 11.sp)
+                }
+                if (logs.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(
+                        onClick = { viewModel.clearLogs() },
+                        modifier = Modifier.testTag("clear_logs_btn")
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("Clear")
+                    }
                 }
             }
         }
@@ -2312,6 +2470,7 @@ fun SimulatedCallHUD(simCall: SimulatedCall, onDismiss: () -> Unit) {
     val isSelfHoldActive by viewModel.isSelfHoldActive.collectAsState()
     val isFlashAlertEnabled by viewModel.isFlashAlertEnabled.collectAsState()
     val ambientSound by viewModel.activeAmbientSound.collectAsState()
+    val visualizerTheme by viewModel.visualizerTheme.collectAsState()
 
     // Determine Ringtone assigned
     val mappedTrackId = customRingtones[simCall.phoneNumber]
@@ -2329,8 +2488,14 @@ fun SimulatedCallHUD(simCall: SimulatedCall, onDismiss: () -> Unit) {
         label = "Glow Width"
     )
 
-    val neonColor1 = Color(0xFF00F2FE) // Neon Cyan
-    val neonColor2 = Color(0xFFBD00FF) // Neon Violet
+    val (neonColor1, neonColor2) = when (visualizerTheme) {
+        "Cyberpunk Amber" -> Color(0xFFFFB300) to Color(0xFFFF6F00)
+        "Vaporwave Purple" -> Color(0xFFBD00FF) to Color(0xFFFF007F)
+        "Matrix Emerald" -> Color(0xFF39FF14) to Color(0xFF00E676)
+        "Sunset Crimson" -> Color(0xFFFF5722) to Color(0xFFE91E63)
+        "Electric Blue" -> Color(0xFF2979FF) to Color(0xFF3D5AFE)
+        else -> Color(0xFF00F2FE) to Color(0xFFBD00FF) // Cyber Neon Cyan
+    }
 
     // Interactive Swipe Control offset state
     var swipeStateOffset by remember { mutableFloatStateOf(0f) }
