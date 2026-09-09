@@ -657,16 +657,33 @@ fun LocalMp3Section(viewModel: CallSmsViewModel) {
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "Custom_Track.mp3"
+            var trackTitle = uri.lastPathSegment?.substringAfterLast("/")?.replace(".mp3", "") ?: "Custom Track"
+            var trackArtist = "Local Device Audio"
+            var trackDuration = 210000L
+            try {
+                val retriever = android.media.MediaMetadataRetriever()
+                retriever.setDataSource(context, uri)
+                val metaTitle = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)
+                val metaArtist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                val metaDuration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                if (!metaTitle.isNullOrBlank()) trackTitle = metaTitle
+                if (!metaArtist.isNullOrBlank()) trackArtist = metaArtist
+                metaDuration?.toLongOrNull()?.let { if (it > 0) trackDuration = it }
+                retriever.release()
+            } catch (e: Exception) {
+                // Keep default metadata
+            }
+
             viewModel.addLocalMp3Track(
-                title = fileName.replace(".mp3", ""),
-                artist = "Local Device Audio",
+                title = trackTitle,
+                artist = trackArtist,
                 album = "Imported MP3",
-                durationMs = 210000L,
-                accentColorHex = "#00F2FE",
-                coverIcon = "🎵"
+                durationMs = trackDuration,
+                accentColorHex = "#00FF00",
+                coverIcon = "🎵",
+                uriString = uri.toString()
             )
-            Toast.makeText(context, "Imported MP3: $fileName", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Loaded MP3: $trackTitle", Toast.LENGTH_SHORT).show()
         }
     }
 

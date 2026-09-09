@@ -11,6 +11,7 @@ import com.example.data.SpamKeywordEntity
 import com.example.repository.CallSmsRepository
 import com.example.repository.SmsAnalysisResult
 import com.example.service.CallMonitoringService
+import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,20 +30,27 @@ data class Mp3Track(
     val album: String,
     val durationMs: Long,
     val accentColorHex: String,
-    val coverIcon: String = "🎵"
+    val coverIcon: String = "🎵",
+    val uriString: String? = null
 )
 
 data class MusicPlayerState(
     val currentTrack: Mp3Track,
     val isPlaying: Boolean = false,
-    val progressMs: Long = 12000,
-    val audioFocusState: String = "Normal" // "Normal", "PausedDueToCall", "Restored"
+    val progressMs: Long = 0L,
+    val durationMs: Long = 210000L,
+    val audioFocusState: String = "Normal", // "Normal", "PausedDueToCall", "Restored"
+    val volume: Float = 1.0f,
+    val isRepeat: Boolean = false,
+    val isShuffle: Boolean = false,
+    val isEqVisible: Boolean = true,
+    val isPlaylistVisible: Boolean = true
 )
 
 data class EqualizerState(
     val isEnabled: Boolean = true,
-    val bands: List<Float> = listOf(0.5f, 0.7f, 0.4f, 0.8f, 0.6f), // 5 slider bands (0.0 to 1.0)
-    val preset: String = "Lofi Beats", // "Flat", "Bass Boost", "Vocal Enhancer", "Rock Booster", "Lofi Beats", "Electronic", "Acoustic", "Clear Call Voice"
+    val bands: List<Float> = listOf(0.6f, 0.55f, 0.5f, 0.45f, 0.5f, 0.55f, 0.65f, 0.7f, 0.65f, 0.6f), // 10 bands (31, 63, 125, 250, 500, 1k, 2k, 4k, 8k, 16k)
+    val preset: String = "Rock", // "Rock", "Techno", "Pop", "Bass Boost", "Vocal", "Acoustic", "Lo-Fi", "Flat"
     val bassBoost: Float = 0.65f, // 0.0 to 1.0
     val virtualizer3D: Float = 0.45f, // 0.0 to 1.0
     val clearVoice: Boolean = true
@@ -92,15 +100,27 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     // --- Music & Call Fusion Features ---
     private val _availableTracks = MutableStateFlow(
         listOf(
-            Mp3Track("1", "Neon Lights", "LoFi Beats", "Midnight Drive", 185000, "#00F2FE", "🎧"),
-            Mp3Track("2", "Rock Star", "Alex Harrison", "Rebel Heart", 210000, "#FF007F", "🎸"),
-            Mp3Track("3", "Cyberpunk Synth", "Vector Force", "Neo Grid 2026", 240000, "#39FF14", "⚡"),
-            Mp3Track("4", "Aura Breeze", "Luna Chill", "Whispers", 152000, "#BD00FF", "🌸"),
-            Mp3Track("5", "Raindrops", "Nature Sounds", "Atmosphere", 300000, "#00E5FF", "🌧️")
+            Mp3Track("1", "Azaad Parinde (1)", "jsthanga", "Imported MP3", 210000L, "#00FF00", "🎵"),
+            Mp3Track("2", "Aaj Ki Mehfil", "jsthanga", "Muso Album", 334000L, "#39FF14", "🎶"),
+            Mp3Track("3", "Glass Penny Future", "jsthanga", "Muso Wave", 292000L, "#00F2FE", "🎧"),
+            Mp3Track("4", "First Frost Remix", "jsthanga", "Muso Remixes", 234000L, "#BD00FF", "⚡"),
+            Mp3Track("5", "Cold Single Cup [1]", "jsthanga", "Muso Tracks", 326000L, "#FFB300", "📻"),
+            Mp3Track("6", "Shadow on the Kitchen Floor", "jsthanga", "Muso Sessions", 263000L, "#FF007F", "🎸"),
+            Mp3Track("7", "Rewrite the Spark", "jsthanga", "Muso Collection", 204000L, "#00E5FF", "🔥"),
+            Mp3Track("8", "Silver Coin Key", "jsthanga", "Muso Vault", 321000L, "#FFA000", "💿"),
+            Mp3Track("9", "Neon Lights", "LoFi Beats", "Midnight Drive", 185000L, "#00F2FE", "🎧"),
+            Mp3Track("10", "Rock Star", "Alex Harrison", "Rebel Heart", 210000L, "#FF007F", "🎸"),
+            Mp3Track("11", "Cyberpunk Synth", "Vector Force", "Neo Grid 2026", 240000L, "#39FF14", "⚡")
         )
     )
     val availableTracksFlow: StateFlow<List<Mp3Track>> = _availableTracks.asStateFlow()
     val availableTracks: List<Mp3Track> get() = _availableTracks.value
+
+    // Real Android Audio Playback Engine
+    val audioPlayerManager = AudioPlayerManager(application)
+    val vuPeakLeft: StateFlow<Float> = audioPlayerManager.vuPeakLeft
+    val vuPeakRight: StateFlow<Float> = audioPlayerManager.vuPeakRight
+    val spectrumBands: StateFlow<List<Float>> = audioPlayerManager.spectrumBands
 
     // --- Settings, Customization & Scanners ---
     private val _appTheme = MutableStateFlow("Cyber Dark") // "Cyber Dark", "OLED Pure Black", "Deep Midnight Navy", "Neon Aurora", "Clean Light Silver"
@@ -248,42 +268,120 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
             CallRecording("r2", "Unknown Spammer", System.currentTimeMillis() - 172800000, 15, "rec_spam_block_warning.mp3")
         )
 
-        // Start background updater loops
-        startMusicProgressLoop()
+        // Connect AudioPlayerManager events
+        audioPlayerManager.onTrackCompleted = {
+            if (_musicPlayerState.value.isRepeat) {
+                audioPlayerManager.playTrack(_musicPlayerState.value.currentTrack)
+            } else {
+                nextTrack()
+            }
+        }
+
+        viewModelScope.launch {
+            audioPlayerManager.isPlaying.collect { playing ->
+                _musicPlayerState.value = _musicPlayerState.value.copy(isPlaying = playing)
+            }
+        }
+
+        viewModelScope.launch {
+            audioPlayerManager.currentPositionMs.collect { pos ->
+                _musicPlayerState.value = _musicPlayerState.value.copy(progressMs = pos)
+            }
+        }
+
+        viewModelScope.launch {
+            audioPlayerManager.durationMs.collect { dur ->
+                _musicPlayerState.value = _musicPlayerState.value.copy(durationMs = dur)
+            }
+        }
+
+        // Start background visualizer updates
         startVisualizerAnimationLoop()
     }
 
-    // --- Music Player Operations ---
+    // --- Music Player Operations with Real Audio Playback ---
     fun togglePlayPause() {
-        val current = _musicPlayerState.value
-        _musicPlayerState.value = current.copy(isPlaying = !current.isPlaying)
+        val state = _musicPlayerState.value
+        if (state.isPlaying) {
+            audioPlayerManager.pause()
+        } else {
+            if (state.progressMs > 0) {
+                audioPlayerManager.resume()
+            } else {
+                audioPlayerManager.playTrack(state.currentTrack)
+            }
+        }
     }
 
     fun playTrack(track: Mp3Track) {
         _musicPlayerState.value = _musicPlayerState.value.copy(
             currentTrack = track,
             isPlaying = true,
-            progressMs = 0
+            progressMs = 0L,
+            durationMs = track.durationMs
+        )
+        audioPlayerManager.playTrack(track)
+    }
+
+    fun stopTrack() {
+        audioPlayerManager.stop()
+        _musicPlayerState.value = _musicPlayerState.value.copy(
+            isPlaying = false,
+            progressMs = 0L
         )
     }
 
     fun nextTrack() {
+        val tracks = availableTracks
+        if (tracks.isEmpty()) return
         val currentTrack = _musicPlayerState.value.currentTrack
-        val index = availableTracks.indexOfFirst { it.id == currentTrack.id }
-        val nextIndex = (index + 1) % availableTracks.size
-        playTrack(availableTracks[nextIndex])
+        val index = tracks.indexOfFirst { it.id == currentTrack.id }
+        val nextIndex = if (_musicPlayerState.value.isShuffle) {
+            Random.nextInt(tracks.size)
+        } else {
+            (index + 1) % tracks.size
+        }
+        playTrack(tracks[nextIndex])
     }
 
     fun previousTrack() {
+        val tracks = availableTracks
+        if (tracks.isEmpty()) return
         val currentTrack = _musicPlayerState.value.currentTrack
-        val index = availableTracks.indexOfFirst { it.id == currentTrack.id }
-        val prevIndex = if (index - 1 < 0) availableTracks.size - 1 else index - 1
-        playTrack(availableTracks[prevIndex])
+        val index = tracks.indexOfFirst { it.id == currentTrack.id }
+        val prevIndex = if (index - 1 < 0) tracks.size - 1 else index - 1
+        playTrack(tracks[prevIndex])
     }
 
     fun seekProgress(ms: Long) {
+        audioPlayerManager.seekTo(ms)
+        _musicPlayerState.value = _musicPlayerState.value.copy(progressMs = ms)
+    }
+
+    fun setPlayerVolume(vol: Float) {
+        val clamped = vol.coerceIn(0f, 1f)
+        audioPlayerManager.setVolume(clamped)
+        _musicPlayerState.value = _musicPlayerState.value.copy(volume = clamped)
+    }
+
+    fun toggleRepeat() {
         val current = _musicPlayerState.value
-        _musicPlayerState.value = current.copy(progressMs = ms.coerceIn(0, current.currentTrack.durationMs))
+        _musicPlayerState.value = current.copy(isRepeat = !current.isRepeat)
+    }
+
+    fun toggleShuffle() {
+        val current = _musicPlayerState.value
+        _musicPlayerState.value = current.copy(isShuffle = !current.isShuffle)
+    }
+
+    fun toggleEqualizerVisibility() {
+        val current = _musicPlayerState.value
+        _musicPlayerState.value = current.copy(isEqVisible = !current.isEqVisible)
+    }
+
+    fun togglePlaylistVisibility() {
+        val current = _musicPlayerState.value
+        _musicPlayerState.value = current.copy(isPlaylistVisible = !current.isPlaylistVisible)
     }
 
     fun scanMusicLibrary() {
@@ -336,6 +434,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         if (index in bands.indices) {
             bands[index] = value.coerceIn(0.0f, 1.0f)
             _equalizerState.value = _equalizerState.value.copy(bands = bands, preset = "Custom")
+            audioPlayerManager.applyEqualizerBands(bands)
         }
     }
 
@@ -352,19 +451,21 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setEqualizerPreset(presetName: String) {
+        // 10 bands: 31, 63, 125, 250, 500, 1k, 2k, 4k, 8k, 16k
         val newBands = when (presetName) {
-            "Bass Boost" -> listOf(0.9f, 0.75f, 0.45f, 0.4f, 0.5f)
-            "Vocal Enhancer" -> listOf(0.3f, 0.6f, 0.85f, 0.75f, 0.4f)
-            "Rock Booster" -> listOf(0.85f, 0.5f, 0.4f, 0.65f, 0.85f)
-            "Lofi Beats" -> listOf(0.6f, 0.7f, 0.5f, 0.45f, 0.55f)
-            "Electronic" -> listOf(0.8f, 0.6f, 0.4f, 0.7f, 0.85f)
-            "Acoustic" -> listOf(0.5f, 0.4f, 0.6f, 0.7f, 0.5f)
-            "Clear Call Voice" -> listOf(0.2f, 0.5f, 0.9f, 0.8f, 0.3f)
-            "Flat" -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
-            else -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
+            "Rock" -> listOf(0.7f, 0.65f, 0.55f, 0.45f, 0.35f, 0.4f, 0.55f, 0.7f, 0.8f, 0.85f)
+            "Techno" -> listOf(0.8f, 0.75f, 0.5f, 0.35f, 0.45f, 0.6f, 0.75f, 0.85f, 0.8f, 0.7f)
+            "Pop" -> listOf(0.45f, 0.6f, 0.75f, 0.8f, 0.7f, 0.55f, 0.45f, 0.6f, 0.7f, 0.75f)
+            "Bass Boost" -> listOf(0.95f, 0.9f, 0.8f, 0.6f, 0.5f, 0.45f, 0.4f, 0.4f, 0.4f, 0.4f)
+            "Vocal" -> listOf(0.3f, 0.4f, 0.55f, 0.8f, 0.9f, 0.85f, 0.7f, 0.5f, 0.4f, 0.35f)
+            "Acoustic" -> listOf(0.55f, 0.6f, 0.5f, 0.45f, 0.55f, 0.65f, 0.7f, 0.75f, 0.65f, 0.6f)
+            "Lo-Fi" -> listOf(0.65f, 0.7f, 0.55f, 0.4f, 0.45f, 0.5f, 0.5f, 0.45f, 0.4f, 0.35f)
+            "Flat" -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
+            else -> listOf(0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f)
         }
-        val newBass = if (presetName == "Bass Boost") 0.9f else if (presetName == "Clear Call Voice") 0.2f else _equalizerState.value.bassBoost
+        val newBass = if (presetName == "Bass Boost") 0.95f else _equalizerState.value.bassBoost
         _equalizerState.value = _equalizerState.value.copy(bands = newBands, preset = presetName, bassBoost = newBass)
+        audioPlayerManager.applyEqualizerBands(newBands)
     }
 
     // --- App Theme & Visualizer Themes ---
@@ -385,23 +486,26 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         title: String,
         artist: String,
         album: String = "Local Audio",
-        durationMs: Long = 195000L,
-        accentColorHex: String = "#00F2FE",
-        coverIcon: String = "🎵"
+        durationMs: Long = 210000L,
+        accentColorHex: String = "#00FF00",
+        coverIcon: String = "🎵",
+        uriString: String? = null
     ) {
         val newId = "local_${System.currentTimeMillis()}"
         val newTrack = Mp3Track(
             id = newId,
-            title = title.ifBlank { "Custom Ringtone" },
-            artist = artist.ifBlank { "Local Audio" },
+            title = title.ifBlank { "Custom Track" },
+            artist = artist.ifBlank { "Local Device Audio" },
             album = album,
-            durationMs = durationMs,
+            durationMs = if (durationMs > 0) durationMs else 210000L,
             accentColorHex = accentColorHex,
-            coverIcon = coverIcon
+            coverIcon = coverIcon,
+            uriString = uriString
         )
         val currentList = _availableTracks.value.toMutableList()
         currentList.add(0, newTrack)
         _availableTracks.value = currentList
+        playTrack(newTrack)
     }
 
     fun removeLocalMp3Track(trackId: String) {
@@ -653,6 +757,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
             // [1] AUDIO FOCUS: Handle second-by-second pause of any active background music
             val wasMusicPlaying = _musicPlayerState.value.isPlaying
             if (wasMusicPlaying) {
+                audioPlayerManager.pause()
                 _musicPlayerState.value = _musicPlayerState.value.copy(
                     isPlaying = false,
                     audioFocusState = "PausedDueToCall"
@@ -699,6 +804,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         // [2] AUDIO FOCUS: Fade back in when call is dismissed
         val focus = _musicPlayerState.value.audioFocusState
         if (focus == "PausedDueToCall") {
+            audioPlayerManager.resume()
             _musicPlayerState.value = _musicPlayerState.value.copy(
                 isPlaying = true,
                 audioFocusState = "Restored"
@@ -771,7 +877,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     private val _crossfadeMs = MutableStateFlow(1500)
     val crossfadeMs: StateFlow<Int> = _crossfadeMs.asStateFlow()
 
-    private val _skinMode = MutableStateFlow("Neon Spectrum") // "Neon Spectrum", "Vinyl Turntable", "Bouncing DVD"
+    private val _skinMode = MutableStateFlow("Winamp Classic") // "Winamp Classic", "Neon Spectrum", "Vinyl Turntable", "Bouncing DVD"
     val skinMode: StateFlow<String> = _skinMode.asStateFlow()
 
     private val _isDialerLocked = MutableStateFlow(false)
@@ -858,7 +964,7 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
-        playerProgressJob?.cancel()
+        audioPlayerManager.release()
         visualizerJob?.cancel()
     }
 }

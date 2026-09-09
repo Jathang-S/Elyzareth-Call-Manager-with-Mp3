@@ -2,6 +2,7 @@ package com.example.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -86,159 +87,326 @@ fun ElyzarethPlayerScreen(
         else -> Color(0xFF00F2FE) to Color(0xFFBD00FF) // Cyber Neon Cyan
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("elyzareth_player_root")
-    ) {
-        // -------------------------------------------------------------
-        // 1. FULL-CANVAS DYNAMIC BACKGROUND
-        // -------------------------------------------------------------
-        if (backgroundUri != null) {
-            AsyncImage(
-                model = backgroundUri,
-                contentDescription = "Custom Wallpaper",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            // Multi-stop contrast scrim to keep white text & cyber controls crystal clear on bright or busy photos
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.55f),
-                                Color.Black.copy(alpha = 0.70f),
-                                Color.Black.copy(alpha = 0.90f)
-                            )
-                        )
-                    )
-            )
-            // Subtle radial vignette
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.45f)
-                            )
-                        )
-                    )
-            )
-        } else {
-            // Theme preset brush
-            when (backgroundTheme) {
-                "Cyber Neon Glow" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        Color(0xFF231442),
-                                        Color(0xFF0D0A1C),
-                                        Color(0xFF05030A)
-                                    )
-                                )
-                            )
-                    )
-                }
-                "Frosted Glass" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(0xFF162238),
-                                        Color(0xFF0E1624),
-                                        Color(0xFF080D14)
-                                    )
-                                )
-                            )
-                    )
-                }
-                "Dynamic Audio Blur" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.sweepGradient(
-                                    colors = listOf(
-                                        Color(0xFF0E1A2B),
-                                        Color(0xFF1B2838),
-                                        Color(0xFF2F1840),
-                                        Color(0xFF0E1A2B)
-                                    )
-                                )
-                            )
-                    )
-                }
-                else -> {
-                    // "Deep AMOLED Black"
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF000000))
-                    )
-                }
-            }
-        }
-
-        // -------------------------------------------------------------
-        // 2. TOP FLOATING CONTROLS (Zero text on top left, hardware icons on top right)
-        // -------------------------------------------------------------
-        Row(
+    if (skinMode == "Winamp Classic") {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .background(Color(0xFF14161C))
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+                .testTag("elyzareth_player_root")
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Subtle Quick Dialer icon
-                IconButton(
-                    onClick = onOpenQuickDialer,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                        .testTag("quick_dialer_pill_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Dialpad,
-                        contentDescription = "Quick Keypad",
-                        tint = neonColor1,
-                        modifier = Modifier.size(20.dp)
-                    )
+            // Retro Top Utility Bar (Skin Selector Pill, Quick Dialer, Settings)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Skin Switcher Pill
+                var showSkinMenu by remember { mutableStateOf(false) }
+                Box {
+                    Surface(
+                        onClick = { showSkinMenu = true },
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF232630),
+                        border = BorderStroke(1.dp, Color(0xFF454B5A))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("⚡", fontSize = 11.sp)
+                            Text(
+                                text = "Winamp Classic",
+                                color = Color(0xFF00FF00),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Change Skin",
+                                tint = Color(0xFF00FF00),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showSkinMenu,
+                        onDismissRequest = { showSkinMenu = false },
+                        modifier = Modifier.background(Color(0xFF20232B))
+                    ) {
+                        listOf("Winamp Classic", "Neon Spectrum", "Vinyl Turntable", "Bouncing DVD").forEach { skin ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = skin,
+                                        color = if (skinMode == skin) Color(0xFF00FF00) else Color.White,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.updateSkinMode(skin)
+                                    showSkinMenu = false
+                                }
+                            )
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Translucent Settings Icon (Single floating entry point)
-                IconButton(
-                    onClick = onOpenSettings,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                        .testTag("floating_settings_button")
+                // Actions on the Right (Quick Dialer & Settings)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = "Audio Lab & Settings",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    IconButton(
+                        onClick = onOpenQuickDialer,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF232630))
+                            .border(1.dp, Color(0xFF454B5A), RoundedCornerShape(6.dp))
+                            .testTag("quick_dialer_pill_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dialpad,
+                            contentDescription = "Quick Keypad",
+                            tint = Color(0xFF00F2FE),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF232630))
+                            .border(1.dp, Color(0xFF454B5A), RoundedCornerShape(6.dp))
+                            .testTag("floating_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Audio Lab & Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
+
+            // Authentic Winamp Classic Player
+            WinampClassicPlayerView(
+                viewModel = viewModel,
+                onOpenSettings = onOpenSettings,
+                modifier = Modifier.weight(1f)
+            )
         }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("elyzareth_player_root")
+        ) {
+            // -------------------------------------------------------------
+            // 1. FULL-CANVAS DYNAMIC BACKGROUND
+            // -------------------------------------------------------------
+            if (backgroundUri != null) {
+                AsyncImage(
+                    model = backgroundUri,
+                    contentDescription = "Custom Wallpaper",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.55f),
+                                    Color.Black.copy(alpha = 0.70f),
+                                    Color.Black.copy(alpha = 0.90f)
+                                )
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.45f)
+                                )
+                            )
+                        )
+                )
+            } else {
+                when (backgroundTheme) {
+                    "Cyber Neon Glow" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF231442),
+                                            Color(0xFF0D0A1C),
+                                            Color(0xFF05030A)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                    "Frosted Glass" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF162238),
+                                            Color(0xFF0E1624),
+                                            Color(0xFF080D14)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                    "Dynamic Audio Blur" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.sweepGradient(
+                                        colors = listOf(
+                                            Color(0xFF0E1A2B),
+                                            Color(0xFF1B2838),
+                                            Color(0xFF2F1840),
+                                            Color(0xFF0E1A2B)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF000000))
+                        )
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // 2. TOP FLOATING CONTROLS
+            // -------------------------------------------------------------
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Skin Switcher Pill
+                var showSkinMenu by remember { mutableStateOf(false) }
+                Box {
+                    Surface(
+                        onClick = { showSkinMenu = true },
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.55f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("⚡", fontSize = 12.sp)
+                            Text(
+                                text = skinMode,
+                                color = neonColor1,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Change Skin",
+                                tint = neonColor1,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showSkinMenu,
+                        onDismissRequest = { showSkinMenu = false },
+                        modifier = Modifier.background(Color(0xFF20232B))
+                    ) {
+                        listOf("Winamp Classic", "Neon Spectrum", "Vinyl Turntable", "Bouncing DVD").forEach { skin ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = skin,
+                                        color = if (skinMode == skin) neonColor1 else Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.updateSkinMode(skin)
+                                    showSkinMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onOpenQuickDialer,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                            .testTag("quick_dialer_pill_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dialpad,
+                            contentDescription = "Quick Keypad",
+                            tint = neonColor1,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                            .testTag("floating_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Audio Lab & Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
 
         // -------------------------------------------------------------
         // 3. FOCUSED AUDIO VISUALIZER & MEDIA PLAYER (CENTERED)
@@ -539,6 +707,7 @@ fun ElyzarethPlayerScreen(
         }
     }
 }
+}
 
 /**
  * ActiveVisualizerView
@@ -789,7 +958,7 @@ fun ActiveVisualizerView(
     }
 }
 
-private fun formatTime(ms: Long): String {
+fun formatTime(ms: Long): String {
     val totalSeconds = (ms / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
