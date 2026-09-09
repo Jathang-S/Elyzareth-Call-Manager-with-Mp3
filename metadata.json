@@ -1,0 +1,6 @@
+{
+  "name": "Elyzareth Caller",
+  "description": "Truecaller-type Call and SMS manager to test caller ID and block spam messages locally.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

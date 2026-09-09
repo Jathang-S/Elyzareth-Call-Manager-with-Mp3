@@ -1,0 +1,31 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center is (54, 54). Draw within 66dp safe zone (21 to 87). -->
+    <!-- Shadow Shield -->
+    <path
+        android:fillColor="#15000000"
+        android:pathData="M56,26 L30,34 L30,62 C30,79 42,93 56,99 C70,93 82,79 82,62 L82,34 Z" />
+    
+    <!-- Main Shield -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M54,24 L28,32 L28,60 C28,77 40,91 54,97 C68,91 80,77 80,60 L80,32 Z" />
+        
+    <!-- Shaded Right-Side of Shield for 3D depth -->
+    <path
+        android:fillColor="#1976D2"
+        android:pathData="M54,24 L80,32 L80,60 C80,77 68,91 54,97 Z" />
+
+    <!-- Phone handset inside shield -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,42 C40,42 38,44 38,46 C38,56 46,64 56,64 C58,64 60,62 60,60 L57,56 C56,55 55,55 54,56 C51,58 48,55 50,52 C51,51 51,50 50,49 L46,43 C45,42 44,42 42,42 Z" />
+        
+    <!-- Clean Checkmark inside shield -->
+    <path
+        android:fillColor="#64FFDA"
+        android:pathData="M46,58 L54,66 L70,46 L66,42 L54,58 L50,54 Z" />
+</vector>
