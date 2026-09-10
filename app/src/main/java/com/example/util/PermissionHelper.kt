@@ -66,6 +66,7 @@ object PermissionHelper {
 
     val REQUIRED_PERMISSIONS = arrayOf(
         Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.READ_CONTACTS,
         Manifest.permission.READ_PHONE_STATE,
         Manifest.permission.RECEIVE_SMS
     )
@@ -73,6 +74,7 @@ object PermissionHelper {
     fun getAllPermissionsToRequest(): Array<String> {
         val perms = mutableListOf(
             Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS,
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.RECEIVE_SMS
         )
@@ -216,8 +218,8 @@ fun RuntimePermissionHandler(
                     Spacer(modifier = Modifier.height(6.dp))
                     PermissionItem(
                         icon = Icons.Default.CheckCircle,
-                        title = "READ_CALL_LOG",
-                        description = "Displays local call history and matches saved contacts"
+                        title = "READ_CALL_LOG & CONTACTS",
+                        description = "Displays real call history, carrier info, and device contacts"
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     PermissionItem(

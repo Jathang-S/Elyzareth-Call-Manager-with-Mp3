@@ -35,6 +35,9 @@ class MainActivity : ComponentActivity() {
             if (results[Manifest.permission.READ_PHONE_STATE] == true) {
               CallMonitoringService.startService(this@MainActivity)
             }
+            if (results[Manifest.permission.READ_CALL_LOG] == true || results[Manifest.permission.READ_CONTACTS] == true) {
+              viewModel.refreshCallLogsAndContacts()
+            }
           }
         ) {
           MainScreen(viewModel = viewModel)

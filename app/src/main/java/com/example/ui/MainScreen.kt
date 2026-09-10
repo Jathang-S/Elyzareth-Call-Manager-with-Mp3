@@ -221,6 +221,20 @@ fun QuickCompactDialerDialog(
 ) {
     val context = LocalContext.current
     var dialedNumber by remember { mutableStateOf("") }
+    val deviceContacts by viewModel.deviceContacts.collectAsState()
+
+    val matchedContacts = remember(dialedNumber, deviceContacts) {
+        if (dialedNumber.isBlank()) emptyList()
+        else {
+            val query = dialedNumber.trim()
+            val queryDigits = query.replace(Regex("[^0-9]"), "")
+            deviceContacts.filter { contact ->
+                val contactDigits = contact.phoneNumber.replace(Regex("[^0-9]"), "")
+                (queryDigits.isNotEmpty() && contactDigits.contains(queryDigits)) ||
+                contact.name.contains(query, ignoreCase = true)
+            }.take(3)
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -239,13 +253,21 @@ fun QuickCompactDialerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "SMART HARDWARE KEYPAD",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Dialpad,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Phone Dialer",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
                     }
@@ -257,7 +279,7 @@ fun QuickCompactDialerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(horizontal = 12.dp),
@@ -265,8 +287,8 @@ fun QuickCompactDialerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = if (dialedNumber.isEmpty()) "Dial number..." else dialedNumber,
-                        fontSize = 16.sp,
+                        text = if (dialedNumber.isEmpty()) "Enter number..." else dialedNumber,
+                        fontSize = 17.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = if (dialedNumber.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
@@ -277,6 +299,46 @@ fun QuickCompactDialerDialog(
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(Icons.Default.Backspace, contentDescription = "Backspace", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+
+                // In-built Mobile Contact Suggestions
+                if (matchedContacts.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        matchedContacts.forEach { contact ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { dialedNumber = contact.phoneNumber }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(contact.name, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("${contact.phoneNumber} • ${contact.typeLabel}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}"))
+                                        context.startActivity(intent)
+                                        onDismiss()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Call, contentDescription = "Call Contact", tint = Color(0xFF00E676), modifier = Modifier.size(16.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -321,48 +383,27 @@ fun QuickCompactDialerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            if (dialedNumber.isNotBlank()) {
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dialedNumber"))
-                                context.startActivity(intent)
-                                onDismiss()
-                            } else {
-                                Toast.makeText(context, "Enter phone number", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676), contentColor = Color.Black),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                    ) {
-                        Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Call", fontWeight = FontWeight.Bold)
-                    }
-
-                    Button(
-                        onClick = {
-                            val target = if (dialedNumber.isNotBlank()) dialedNumber else "+1 (555) 019-2834"
-                            viewModel.simulateIncomingCall(target)
+                Button(
+                    onClick = {
+                        if (dialedNumber.isNotBlank()) {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dialedNumber"))
+                            context.startActivity(intent)
                             onDismiss()
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                    ) {
-                        Icon(Icons.Default.RingVolume, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Simulate", fontSize = 12.sp)
-                    }
+                        } else {
+                            Toast.makeText(context, "Enter phone number", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676), contentColor = Color.Black),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Call", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }

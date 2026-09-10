@@ -4,10 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
+import com.example.data.AdvancedCallLog
 import com.example.data.CallLogEntity
 import com.example.data.ContactEntity
+import com.example.data.DeviceContact
 import com.example.data.LogEntity
 import com.example.data.SpamKeywordEntity
+import com.example.repository.CallLogManager
 import com.example.repository.CallSmsRepository
 import com.example.repository.SmsAnalysisResult
 import com.example.service.CallMonitoringService
@@ -82,6 +85,63 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     val allSpamKeywords: StateFlow<List<SpamKeywordEntity>>
     val allLogs: StateFlow<List<LogEntity>>
     val allCallLogs: StateFlow<List<CallLogEntity>>
+
+    // --- Advanced Real Call Logs & In-built Contacts ---
+    private val _advancedCallLogs = MutableStateFlow<List<AdvancedCallLog>>(emptyList())
+    val advancedCallLogs: StateFlow<List<AdvancedCallLog>> = _advancedCallLogs.asStateFlow()
+
+    private val _deviceContacts = MutableStateFlow<List<DeviceContact>>(emptyList())
+    val deviceContacts: StateFlow<List<DeviceContact>> = _deviceContacts.asStateFlow()
+
+    private val _callFilter = MutableStateFlow("All") // "All", "Missed", "Contacts", "Non-spam"
+    val callFilter: StateFlow<String> = _callFilter.asStateFlow()
+
+    fun setCallFilter(filter: String) {
+        _callFilter.value = filter
+    }
+
+    fun answerBusinessQuestion(logId: Long, isBusiness: Boolean) {
+        _advancedCallLogs.value = _advancedCallLogs.value.map { log ->
+            if (log.id == logId) {
+                log.copy(
+                    isBusinessQuestionAnswered = true,
+                    isVerifiedBusiness = if (isBusiness) true else log.isVerifiedBusiness,
+                    locationLabel = if (isBusiness) "Business" else log.locationLabel
+                )
+            } else log
+        }
+    }
+
+    fun reportCallLogSpam(logId: Long) {
+        _advancedCallLogs.value = _advancedCallLogs.value.map { log ->
+            if (log.id == logId) {
+                log.copy(
+                    isSpam = true,
+                    spamWarning = "Likely: Reported Spam",
+                    isBusinessQuestionAnswered = true
+                )
+            } else log
+        }
+    }
+
+    fun deleteAdvancedCallLog(logId: Long) {
+        _advancedCallLogs.value = _advancedCallLogs.value.filter { it.id != logId }
+    }
+
+    fun clearAdvancedCallLogs() {
+        _advancedCallLogs.value = emptyList()
+    }
+
+    fun refreshCallLogsAndContacts() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val contacts = CallLogManager.fetchDeviceContacts(getApplication())
+            _deviceContacts.value = contacts
+
+            val contactsMap = contacts.associateBy { CallLogManager.normalizePhoneNumber(it.phoneNumber) }
+            val logs = CallLogManager.fetchCallLogs(getApplication(), contactsMap)
+            _advancedCallLogs.value = logs
+        }
+    }
 
     // --- State for Interactive Testing & Simulation ---
     private val _simulatedCall = MutableStateFlow<SimulatedCall?>(null)
@@ -261,6 +321,9 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.checkAndSeedDatabase()
         }
+
+        // Fetch real device call logs & in-built contacts
+        refreshCallLogsAndContacts()
 
         // Seed default recordings
         _recordings.value = listOf(

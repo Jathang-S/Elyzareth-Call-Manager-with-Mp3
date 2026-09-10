@@ -1,12 +1,17 @@
 package com.example.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.CallLog
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -27,11 +33,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.CallLogEntity
-import com.example.data.ContactEntity
+import coil.compose.AsyncImage
+import com.example.data.AdvancedCallLog
+import com.example.data.DeviceContact
+import com.example.repository.CallLogManager
 import com.example.viewmodel.CallSmsViewModel
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,28 +47,44 @@ fun PhoneTabScreen(
     onOpenDialpad: () -> Unit
 ) {
     val context = LocalContext.current
-    val callLogs by viewModel.allCallLogs.collectAsState()
-    val contacts by viewModel.allContacts.collectAsState()
+    val advancedCallLogs by viewModel.advancedCallLogs.collectAsState()
+    val deviceContacts by viewModel.deviceContacts.collectAsState()
+    val currentFilter by viewModel.callFilter.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedSubTab by remember { mutableIntStateOf(0) } // 0 = Recent Calls, 1 = Contacts
-    var showAddContactDialog by remember { mutableStateOf(false) }
 
-    val dateFormat = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
+    // Filter call logs based on search query and selected filter chip
+    val filteredLogs = remember(advancedCallLogs, searchQuery, currentFilter) {
+        advancedCallLogs.filter { log ->
+            // Search query filter
+            val matchesQuery = if (searchQuery.isBlank()) true else {
+                log.phoneNumber.contains(searchQuery, ignoreCase = true) ||
+                (log.contactName?.contains(searchQuery, ignoreCase = true) == true) ||
+                log.locationLabel.contains(searchQuery, ignoreCase = true) ||
+                log.carrierLabel.contains(searchQuery, ignoreCase = true) ||
+                (log.spamWarning?.contains(searchQuery, ignoreCase = true) == true)
+            }
 
-    val filteredLogs = remember(callLogs, searchQuery) {
-        if (searchQuery.isBlank()) callLogs
-        else callLogs.filter {
-            it.phoneNumber.contains(searchQuery, ignoreCase = true) ||
-            (it.callerName?.contains(searchQuery, ignoreCase = true) == true)
+            // Chip filter
+            val matchesChip = when (currentFilter) {
+                "Missed" -> log.callType == CallLog.Calls.MISSED_TYPE || log.callType == CallLog.Calls.REJECTED_TYPE
+                "Contacts" -> !log.contactName.isNullOrBlank() && !log.isSpam
+                "Non-spam" -> !log.isSpam
+                else -> true // "All"
+            }
+
+            matchesQuery && matchesChip
         }
     }
 
-    val filteredContacts = remember(contacts, searchQuery) {
-        if (searchQuery.isBlank()) contacts
-        else contacts.filter {
-            it.name.contains(searchQuery, ignoreCase = true) ||
-            it.phoneNumber.contains(searchQuery, ignoreCase = true)
+    // Filter in-built device contacts based on search query
+    val filteredContacts = remember(deviceContacts, searchQuery) {
+        if (searchQuery.isBlank()) deviceContacts
+        else deviceContacts.filter { contact ->
+            contact.name.contains(searchQuery, ignoreCase = true) ||
+            contact.phoneNumber.contains(searchQuery, ignoreCase = true) ||
+            contact.typeLabel.contains(searchQuery, ignoreCase = true)
         }
     }
 
@@ -69,7 +92,7 @@ fun PhoneTabScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onOpenDialpad,
-                containerColor = Color(0xFF00F2FE),
+                containerColor = Color(0xFF00E676),
                 contentColor = Color.Black,
                 shape = CircleShape,
                 modifier = Modifier
@@ -107,26 +130,27 @@ fun PhoneTabScreen(
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "Local telephony shield & caller identity",
+                        text = "Real-time Caller ID & local telephony shield",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                if (selectedSubTab == 1) {
-                    IconButton(
-                        onClick = { showAddContactDialog = true },
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color(0xFF00F2FE).copy(alpha = 0.15f))
-                            .testTag("add_contact_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = "Add Contact",
-                            tint = Color(0xFF00F2FE)
-                        )
-                    }
+                IconButton(
+                    onClick = {
+                        viewModel.refreshCallLogsAndContacts()
+                        Toast.makeText(context, "Refreshed call logs and contacts", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
@@ -134,7 +158,7 @@ fun PhoneTabScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search by name or number...") },
+                placeholder = { Text("Search by name, number, or carrier...") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -160,7 +184,7 @@ fun PhoneTabScreen(
                     .testTag("phone_search_bar")
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Sub Tab Switcher: Recents vs Contacts
             TabRow(
@@ -195,7 +219,46 @@ fun PhoneTabScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Horizontal Filter Chips for Recent Calls (Matching Prompt Requirements)
+            if (selectedSubTab == 0) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val filterOptions = listOf("All", "Missed", "Contacts", "Non-spam")
+                    filterOptions.forEach { filter ->
+                        val isSelected = currentFilter == filter
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setCallFilter(filter) },
+                            label = {
+                                Text(
+                                    text = filter,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF00F2FE).copy(alpha = 0.2f),
+                                selectedLabelColor = Color(0xFF00F2FE)
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = if (isSelected) Color(0xFF00F2FE) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Sub Tab Content
             if (selectedSubTab == 0) {
@@ -216,60 +279,46 @@ fun PhoneTabScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "No Recent Calls",
+                                text = "No Calls Found",
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Simulate a call from dialpad or wait for incoming calls.",
+                                text = "Calls will appear here as you make and receive them.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
                     }
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Call History",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        TextButton(
-                            onClick = { viewModel.clearCallLogs() },
-                            modifier = Modifier.testTag("clear_call_history_btn")
-                        ) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear All", fontSize = 11.sp)
-                        }
-                    }
-
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 72.dp)
+                        contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
                         items(filteredLogs, key = { it.id }) { log ->
-                            CallLogItemCard(
+                            AdvancedCallLogItemCard(
                                 log = log,
                                 onCall = {
-                                    viewModel.simulateIncomingCall(log.phoneNumber)
-                                    Toast.makeText(context, "Simulating call from ${log.phoneNumber}", Toast.LENGTH_SHORT).show()
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${log.phoneNumber}"))
+                                    context.startActivity(intent)
                                 },
-                                onDelete = { viewModel.deleteCallLog(log.id) },
-                                dateFormat = dateFormat
+                                onDelete = { viewModel.deleteAdvancedCallLog(log.id) },
+                                onAnswerBusinessQuestion = { isBusiness ->
+                                    viewModel.answerBusinessQuestion(log.id, isBusiness)
+                                },
+                                onReportSpam = {
+                                    viewModel.reportCallLogSpam(log.id)
+                                    Toast.makeText(context, "Reported ${log.phoneNumber} as spam", Toast.LENGTH_SHORT).show()
+                                }
                             )
                         }
                     }
                 }
             } else {
-                // Contacts List
+                // In-built Mobile Contacts List
                 if (filteredContacts.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -286,9 +335,14 @@ fun PhoneTabScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "No Contacts Found",
+                                text = "No Device Contacts Found",
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Allow Contacts permission to view mobile contacts here.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -298,16 +352,19 @@ fun PhoneTabScreen(
                             .fillMaxWidth()
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 72.dp)
+                        contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
-                        items(filteredContacts, key = { it.id }) { contact ->
-                            ContactItemCard(
+                        items(filteredContacts, key = { it.id + it.phoneNumber }) { contact ->
+                            DeviceContactItemCard(
                                 contact = contact,
                                 onCall = {
-                                    viewModel.simulateIncomingCall(contact.phoneNumber)
-                                    Toast.makeText(context, "Calling ${contact.name}...", Toast.LENGTH_SHORT).show()
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}"))
+                                    context.startActivity(intent)
                                 },
-                                onDelete = { viewModel.removeContact(contact) }
+                                onSms = {
+                                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${contact.phoneNumber}"))
+                                    context.startActivity(intent)
+                                }
                             )
                         }
                     }
@@ -315,38 +372,354 @@ fun PhoneTabScreen(
             }
         }
     }
-
-    // Add Contact Dialog
-    if (showAddContactDialog) {
-        AddContactModalDialog(
-            onDismiss = { showAddContactDialog = false },
-            onSave = { name, number, category, isBlocked ->
-                viewModel.addContact(number, name, category, null, isBlocked)
-                showAddContactDialog = false
-                Toast.makeText(context, "Contact saved locally", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
 }
 
+/**
+ * Advanced Call Log item card matching the exact specifications:
+ * - Circular Left Asset: photo, letter circle (e.g. 'A' for AI Robo), or spam/avatar icon
+ * - Mid-Section Stacking (3 rows):
+ *     Row 1: Contact Name (or Spam warning e.g. "Likely: Jaydeb Roy") + [HD] and Verified badges
+ *     Row 2: Call direction arrow + Location/Label (Home, Mobile, India) + Relative timestamp (• 6 min ago)
+ *     Row 3: Active SIM carrier name in accent text color (e.g. "airtel")
+ * - Inline Context Card: "Was this a business?" with action buttons
+ * - Right-Side Action: Clean phone receiver icon button for instant callback
+ */
 @Composable
-fun CallLogItemCard(
-    log: CallLogEntity,
+fun AdvancedCallLogItemCard(
+    log: AdvancedCallLog,
     onCall: () -> Unit,
     onDelete: () -> Unit,
-    dateFormat: SimpleDateFormat
+    onAnswerBusinessQuestion: (Boolean) -> Unit,
+    onReportSpam: () -> Unit
 ) {
+    val avatarColors = remember {
+        listOf(
+            Color(0xFF00E676),
+            Color(0xFF00F2FE),
+            Color(0xFFFFB300),
+            Color(0xFFBD00FF),
+            Color(0xFFFF5252),
+            Color(0xFF2979FF),
+            Color(0xFF00E5FF)
+        )
+    }
+
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
             .border(
                 1.dp,
-                if (log.isSpam) Color(0xFFFF5252).copy(alpha = 0.3f)
-                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                RoundedCornerShape(14.dp)
+                if (log.isSpam) Color(0xFFFF5252).copy(alpha = 0.35f)
+                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(16.dp)
             )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // --- 1. CIRCULAR LEFT ASSET ---
+                val initialLetter = (log.contactName ?: log.phoneNumber).trim().firstOrNull()?.uppercaseChar() ?: '?'
+                val letterColor = remember(log.contactName, log.phoneNumber) {
+                    val hash = abs((log.contactName ?: log.phoneNumber).hashCode())
+                    avatarColors[hash % avatarColors.size]
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                log.isSpam -> Color(0xFFFF5252).copy(alpha = 0.15f)
+                                log.photoUri != null -> Color.Transparent
+                                !log.contactName.isNullOrBlank() -> letterColor.copy(alpha = 0.2f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (log.photoUri != null) {
+                        AsyncImage(
+                            model = log.photoUri,
+                            contentDescription = log.contactName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (log.isSpam) {
+                        Icon(
+                            imageVector = Icons.Default.SecurityUpdateWarning,
+                            contentDescription = "Spam Warning",
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    } else if (!log.contactName.isNullOrBlank()) {
+                        Text(
+                            text = initialLetter.toString(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = letterColor
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.PersonOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // --- 2. MID-SECTION STACKING (3 ROWS) ---
+                Column(modifier = Modifier.weight(1f)) {
+                    // Row 1: Contact Name or Spam Warning + Badges
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (log.isSpam) {
+                            Text(
+                                text = log.spamWarning ?: "Likely: Spam Caller",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color(0xFFFF5252),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        } else {
+                            Text(
+                                text = log.contactName ?: log.phoneNumber,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+
+                        // Verified Business Badge
+                        if (log.isVerifiedBusiness) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF00E676).copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified",
+                                    tint = Color(0xFF00E676),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Verified",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00E676)
+                                )
+                            }
+                        }
+
+                        // [HD] Badge
+                        if (log.isHd) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF00F2FE).copy(alpha = 0.15f))
+                                    .border(0.5.dp, Color(0xFF00F2FE).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "[HD]",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00F2FE)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    // Row 2: Call Direction Arrow + Location/Label + Relative Timestamp
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val (directionIcon, directionColor) = when (log.callType) {
+                            CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE ->
+                                Icons.AutoMirrored.Filled.CallMissed to Color(0xFFFF5252)
+                            CallLog.Calls.OUTGOING_TYPE ->
+                                Icons.AutoMirrored.Filled.CallMade to Color(0xFF00F2FE)
+                            else ->
+                                Icons.AutoMirrored.Filled.CallReceived to Color(0xFF00E676)
+                        }
+
+                        Icon(
+                            imageVector = directionIcon,
+                            contentDescription = null,
+                            tint = directionColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Text(
+                            text = log.locationLabel,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Text(
+                            text = " • ",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+
+                        Text(
+                            text = CallLogManager.formatRelativeCallTime(log.date),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Row 3: Active SIM Card Carrier Name in Accent Text Color
+                    Text(
+                        text = log.carrierLabel,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF00F2FE)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // --- 3. RIGHT-SIDE ACTION BUTTONS ---
+                IconButton(
+                    onClick = onCall,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF00E676).copy(alpha = 0.12f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = "Call Back",
+                        tint = Color(0xFF00E676),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // --- 4. INLINE CONTEXT CARD (DYNAMIC BUSINESS INQUIRY) ---
+            if ((log.isSpam || log.contactName == null) && !log.isBusinessQuestionAnswered) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Was this a business?",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(
+                                onClick = { onAnswerBusinessQuestion(true) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Yes", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00F2FE))
+                            }
+                            TextButton(
+                                onClick = { onAnswerBusinessQuestion(false) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("No", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(
+                                onClick = onReportSpam,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Report Spam", fontSize = 11.sp, color = Color(0xFFFF5252))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * In-built Device Contact item card displaying photo/avatar, contact name, phone number & type,
+ * and quick dial / SMS actions.
+ */
+@Composable
+fun DeviceContactItemCard(
+    contact: DeviceContact,
+    onCall: () -> Unit,
+    onSms: () -> Unit
+) {
+    val avatarColors = remember {
+        listOf(
+            Color(0xFF00E676),
+            Color(0xFF00F2FE),
+            Color(0xFFFFB300),
+            Color(0xFFBD00FF),
+            Color(0xFFFF5252),
+            Color(0xFF2979FF)
+        )
+    }
+
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
     ) {
         Row(
             modifier = Modifier
@@ -354,59 +727,54 @@ fun CallLogItemCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Direction / Type Icon
-            val (icon, tint) = when {
-                log.isSpam -> Icons.Default.ReportProblem to Color(0xFFFF5252)
-                log.callType == "MISSED" -> Icons.AutoMirrored.Filled.CallMissed to Color(0xFFFF5252)
-                log.callType == "OUTGOING" -> Icons.AutoMirrored.Filled.CallMade to Color(0xFF00F2FE)
-                else -> Icons.AutoMirrored.Filled.CallReceived to Color(0xFF00E676)
+            val initial = contact.name.trim().firstOrNull()?.uppercaseChar() ?: '?'
+            val letterColor = remember(contact.name) {
+                val hash = abs(contact.name.hashCode())
+                avatarColors[hash % avatarColors.size]
             }
 
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.12f)),
+                    .background(
+                        if (contact.photoUri != null) Color.Transparent
+                        else letterColor.copy(alpha = 0.2f)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = log.callType, tint = tint, modifier = Modifier.size(20.dp))
+                if (contact.photoUri != null) {
+                    AsyncImage(
+                        model = contact.photoUri,
+                        contentDescription = contact.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = initial.toString(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = letterColor
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = log.callerName ?: log.phoneNumber,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (log.isSpam) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFFFF5252).copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "SPAM",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFF5252)
-                            )
-                        }
-                    }
-                }
-
+                Text(
+                    text = contact.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Spacer(modifier = Modifier.height(2.dp))
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = log.phoneNumber,
+                        text = contact.phoneNumber,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -416,26 +784,20 @@ fun CallLogItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                     Text(
-                        text = dateFormat.format(Date(log.timestamp)),
+                        text = contact.typeLabel,
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    )
-                }
-
-                if (log.durationSeconds > 0) {
-                    Text(
-                        text = "Duration: ${log.durationSeconds / 60}m ${log.durationSeconds % 60}s",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF00F2FE)
                     )
                 }
             }
 
-            // Action Buttons
             IconButton(
                 onClick = onCall,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00E676).copy(alpha = 0.12f))
             ) {
                 Icon(
                     imageVector = Icons.Default.Call,
@@ -445,185 +807,22 @@ fun CallLogItemCard(
                 )
             }
 
+            Spacer(modifier = Modifier.width(4.dp))
+
             IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(36.dp)
+                onClick = onSms,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00F2FE).copy(alpha = 0.12f))
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Delete Log",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.size(16.dp)
+                    imageVector = Icons.Default.Message,
+                    contentDescription = "Message",
+                    tint = Color(0xFF00F2FE),
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
     }
-}
-
-@Composable
-fun ContactItemCard(
-    contact: ContactEntity,
-    onCall: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                1.dp,
-                when (contact.category) {
-                    "SPAM" -> Color(0xFFFF5252).copy(alpha = 0.3f)
-                    "BUSINESS" -> Color(0xFF00F2FE).copy(alpha = 0.3f)
-                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                },
-                RoundedCornerShape(14.dp)
-            )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val (badgeBg, badgeTint, badgeIcon) = when (contact.category) {
-                "SPAM" -> Triple(Color(0xFFFF5252).copy(alpha = 0.15f), Color(0xFFFF5252), Icons.Default.ReportProblem)
-                "BUSINESS" -> Triple(Color(0xFF00F2FE).copy(alpha = 0.15f), Color(0xFF00F2FE), Icons.Default.Business)
-                else -> Triple(Color(0xFFBD00FF).copy(alpha = 0.15f), Color(0xFFBD00FF), Icons.Default.Person)
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(badgeBg),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(badgeIcon, contentDescription = contact.category, tint = badgeTint, modifier = Modifier.size(20.dp))
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = contact.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(badgeBg)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = contact.category,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badgeTint
-                        )
-                    }
-                }
-
-                Text(
-                    text = contact.phoneNumber,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            IconButton(onClick = onCall, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Call, contentDescription = "Call", tint = Color(0xFF00E676), modifier = Modifier.size(18.dp))
-            }
-
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun AddContactModalDialog(
-    onDismiss: () -> Unit,
-    onSave: (name: String, number: String, category: String, isBlocked: Boolean) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var number by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("PERSONAL") }
-    var isBlocked by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Local Contact", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Full Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("add_contact_name_input")
-                )
-                OutlinedTextField(
-                    value = number,
-                    onValueChange = { number = it },
-                    label = { Text("Phone Number") },
-                    placeholder = { Text("+1 (555) 000-0000") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("add_contact_phone_input")
-                )
-
-                // Category Selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    listOf("PERSONAL", "BUSINESS", "SPAM").forEach { cat ->
-                        FilterChip(
-                            selected = category == cat,
-                            onClick = {
-                                category = cat
-                                if (cat == "SPAM") isBlocked = true
-                            },
-                            label = { Text(cat, fontSize = 11.sp) }
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isBlocked,
-                        onCheckedChange = { isBlocked = it }
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Auto-block & silence calls", fontSize = 12.sp)
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (name.isNotBlank() && number.isNotBlank()) {
-                        onSave(name, number, category, isBlocked)
-                    }
-                },
-                enabled = name.isNotBlank() && number.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }

@@ -106,9 +106,11 @@ class CallMonitoringService : Service() {
         Log.d(TAG, "Call state changed: $state, number: $phoneNumber")
         when (state) {
             TelephonyManager.CALL_STATE_RINGING -> {
-                val numberToProcess = phoneNumber ?: lastObservedNumber ?: "+18005559999"
-                lastObservedNumber = numberToProcess
-                processIncomingCall(numberToProcess)
+                val numberToProcess = phoneNumber ?: lastObservedNumber
+                if (!numberToProcess.isNullOrBlank()) {
+                    lastObservedNumber = numberToProcess
+                    processIncomingCall(numberToProcess)
+                }
             }
             TelephonyManager.CALL_STATE_IDLE -> {
                 lastObservedNumber = null
