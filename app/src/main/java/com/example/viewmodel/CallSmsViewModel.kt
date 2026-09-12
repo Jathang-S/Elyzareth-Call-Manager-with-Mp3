@@ -289,6 +289,28 @@ class CallSmsViewModel(application: Application) : AndroidViewModel(application)
     private val _isScanningLibrary = MutableStateFlow(false)
     val isScanningLibrary: StateFlow<Boolean> = _isScanningLibrary.asStateFlow()
 
+    // --- Default Dialer & Incoming DIAL Intent State ---
+    private val _pendingDialNumber = MutableStateFlow<String?>(null)
+    val pendingDialNumber: StateFlow<String?> = _pendingDialNumber.asStateFlow()
+
+    fun setPendingDialNumber(number: String?) {
+        _pendingDialNumber.value = number
+    }
+
+    fun handleIncomingDialIntent(intent: android.content.Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (action == android.content.Intent.ACTION_DIAL || action == android.content.Intent.ACTION_VIEW) {
+            val scheme = intent.data?.scheme
+            if (scheme == "tel") {
+                val number = intent.data?.schemeSpecificPart
+                if (!number.isNullOrBlank()) {
+                    _pendingDialNumber.value = number
+                }
+            }
+        }
+    }
+
     // Custom ringtone mapper (phone number -> track id)
     private val _customRingtones = MutableStateFlow<Map<String, String>>(
         mapOf("+15550142398" to "2") // Default Alex Harrison -> Rock Star

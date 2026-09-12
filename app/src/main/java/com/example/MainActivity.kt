@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import android.content.Intent
 import com.example.service.CallMonitoringService
 import com.example.ui.MainScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -21,6 +22,9 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    // Handle incoming DIAL or tel: intents
+    viewModel.handleIncomingDialIntent(intent)
 
     // Start call monitoring service if permissions are already granted
     if (PermissionHelper.hasPermission(this, Manifest.permission.READ_PHONE_STATE)) {
@@ -44,5 +48,11 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    viewModel.handleIncomingDialIntent(intent)
   }
 }

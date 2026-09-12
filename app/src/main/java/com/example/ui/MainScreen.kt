@@ -70,6 +70,15 @@ fun MainScreen(viewModel: CallSmsViewModel) {
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showQuickDialerDialog by remember { mutableStateOf(false) }
 
+    // Observe incoming DIAL intent numbers from Android Telecom / external apps
+    val pendingDialNumber by viewModel.pendingDialNumber.collectAsState()
+    LaunchedEffect(pendingDialNumber) {
+        if (!pendingDialNumber.isNullOrBlank()) {
+            selectedTab = 0 // Phone tab
+            showQuickDialerDialog = true
+        }
+    }
+
     // Collect Simulation & Lookup States
     val activeSimulatedCall by viewModel.simulatedCall.collectAsState()
     val activeSimulatedSms by viewModel.simulatedSms.collectAsState()
@@ -192,7 +201,10 @@ fun MainScreen(viewModel: CallSmsViewModel) {
             if (showQuickDialerDialog) {
                 QuickCompactDialerDialog(
                     viewModel = viewModel,
-                    onDismiss = { showQuickDialerDialog = false }
+                    onDismiss = {
+                        viewModel.setPendingDialNumber(null)
+                        showQuickDialerDialog = false
+                    }
                 )
             }
 
@@ -220,7 +232,10 @@ fun QuickCompactDialerDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var dialedNumber by remember { mutableStateOf("") }
+    val pendingDialNumber by viewModel.pendingDialNumber.collectAsState()
+    var dialedNumber by remember(pendingDialNumber) {
+        mutableStateOf(pendingDialNumber ?: "")
+    }
     val deviceContacts by viewModel.deviceContacts.collectAsState()
 
     val matchedContacts = remember(dialedNumber, deviceContacts) {
@@ -303,40 +318,86 @@ fun QuickCompactDialerDialog(
                     }
                 }
 
-                // In-built Mobile Contact Suggestions
-                if (matchedContacts.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        matchedContacts.forEach { contact ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { dialedNumber = contact.phoneNumber }
-                                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bounded, fixed layout area for contact results above keypad
+                // Bounded height ensures contact search results NEVER push, resize, or reposition the keypad below
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(96.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        dialedNumber.isBlank() -> {
+                            // State: No entered number
+                            Text(
+                                text = "Enter number to search contacts",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        matchedContacts.isEmpty() -> {
+                            // State: 0 matching contacts (Requirement 4: explicitly show "No matching contacts")
+                            Text(
+                                text = "No matching contacts",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        else -> {
+                            // State: Matching contacts (scrollable within fixed bounds)
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(contact.name, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("${contact.phoneNumber} • ${contact.typeLabel}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}"))
-                                        context.startActivity(intent)
-                                        onDismiss()
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Call, contentDescription = "Call Contact", tint = Color(0xFF00E676), modifier = Modifier.size(16.dp))
+                                items(matchedContacts, key = { it.id + it.phoneNumber }) { contact ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { dialedNumber = contact.phoneNumber }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = contact.name,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${contact.phoneNumber} • ${contact.typeLabel}",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}"))
+                                                context.startActivity(intent)
+                                                onDismiss()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Call,
+                                                contentDescription = "Call Contact",
+                                                tint = Color(0xFF00E676),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
