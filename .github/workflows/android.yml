@@ -1,10 +1,7 @@
 name: Elyzareth Caller CI/CD
 
 on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+  # Automatic push trigger disabled. Builds will only run when manually started.
   workflow_dispatch:
 
 concurrency:
